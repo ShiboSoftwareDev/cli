@@ -6,6 +6,17 @@ import Debug from "debug"
 
 const debug = Debug("tsci:generate-circuit-json")
 
+// Helper to get base output filename, removing .circuit.json if present
+function getBaseOutputFileName(
+  filePath: string,
+  customOutputFileName?: string,
+) {
+  if (customOutputFileName) {
+    return customOutputFileName.replace(/\.circuit\.json$/, "")
+  }
+  return path.basename(filePath).replace(/\.[^.]+$/, "")
+}
+
 const ALLOWED_FILE_EXTENSIONS = [
   ".tsx",
   ".ts",
@@ -30,7 +41,7 @@ type GenerateCircuitJsonOptions = {
  * @returns The generated circuit JSON object
  */
 export async function generateCircuitJson({
-  filePath,
+  filePath, // Expecting an absolute path
   outputDir,
   outputFileName,
   saveToFile = false,
@@ -38,45 +49,58 @@ export async function generateCircuitJson({
   debug(`Generating circuit JSON for ${filePath}`)
 
   const runner = new CircuitRunner()
-  const projectDir = path.dirname(filePath)
-  const resolvedOutputDir = outputDir || projectDir
+  const containingDir = path.dirname(filePath) // Absolute path to directory of filePath
+  const componentFileName = path.basename(filePath) // Filename part, e.g., "index.tsx"
 
-  // Get the relative path to the component from the project directory
-  const relativeComponentPath = path.relative(projectDir, filePath)
+  const originalCwd = process.cwd()
 
-  // Create a default output filename if not provided
-  const baseFileName =
-    outputFileName || path.basename(filePath).replace(/\.[^.]+$/, "")
-  const outputPath = path.join(
-    resolvedOutputDir,
-    `${baseFileName}.circuit.json`,
+  // Resolve outputDir against originalCwd BEFORE chdir.
+  // If outputDir is not provided, it defaults to the filePath's directory (containingDir).
+  const absoluteResolvedOutputDir = outputDir
+    ? path.resolve(originalCwd, outputDir)
+    : containingDir
+
+  // Determine base name for output file (without .circuit.json extension)
+  const baseOutputName = getBaseOutputFileName(filePath, outputFileName)
+  const finalOutputPath = path.join(
+    absoluteResolvedOutputDir,
+    `${baseOutputName}.circuit.json`,
   )
 
-  debug(`Project directory: ${projectDir}`)
-  debug(`Relative component path: ${relativeComponentPath}`)
-  debug(`Output path: ${outputPath}`)
+  debug(
+    `Effective VFS root (cwd for getVirtualFileSystemFromDirPath): ${containingDir}`,
+  )
+  debug(`Component file for VFS (mainComponentPath): ${componentFileName}`)
+  debug(`Calculated final output path: ${finalOutputPath}`)
 
-  // Create a virtual file system with the project files
-  const fsMap = {
-    ...((await getVirtualFileSystemFromDirPath({
-      dirPath: projectDir,
-      fileMatchFn: (filePath) => {
-        if (filePath.includes("node_modules/")) return false
-        if (filePath.includes("dist/")) return false
-        if (filePath.includes("build/")) return false
-        if (filePath.match(/^\.[^\/]/)) return false
-        if (!ALLOWED_FILE_EXTENSIONS.includes(path.extname(filePath)))
-          return false
+  let fsMapResult: Record<string, string>
+  try {
+    process.chdir(containingDir) // Change CWD to the directory of the file
+    // Create a virtual file system with the project files, using "." as dirPath
+    fsMapResult = (await getVirtualFileSystemFromDirPath({
+      dirPath: ".", // Use "." for dirPath, relative to the new CWD (containingDir)
+      fileMatchFn: (fp) => {
+        // fp is relative to "." (which is containingDir)
+        if (fp.includes("node_modules/")) return false
+        if (fp.includes("dist/")) return false
+        if (fp.includes("build/")) return false
+        // Matches dotfiles/dotfolders at the current level e.g. ".git", "./.env"
+        if (fp.match(/(?:^\.|^\.\/)\.?\w+/)) return false
+        if (!ALLOWED_FILE_EXTENSIONS.includes(path.extname(fp))) return false
         return true
       },
       contentFormat: "string",
-    })) as Record<string, string>),
+    })) as Record<string, string>
+  } finally {
+    process.chdir(originalCwd) // Change back CWD
   }
+
+  const fsMap = { ...fsMapResult }
 
   // Execute the circuit runner with the virtual file system
   await runner.executeWithFsMap({
-    fsMap,
-    mainComponentPath: relativeComponentPath,
+    fsMap, // Keys are relative to containingDir
+    mainComponentPath: componentFileName, // Path relative to the root of fsMap (containingDir)
   })
 
   // Wait for the circuit to be fully rendered
@@ -87,12 +111,14 @@ export async function generateCircuitJson({
 
   // Save the circuit JSON to a file if requested
   if (saveToFile) {
-    debug(`Saving circuit JSON to ${outputPath}`)
-    fs.writeFileSync(outputPath, JSON.stringify(circuitJson, null, 2))
+    debug(`Saving circuit JSON to ${finalOutputPath}`)
+    // Ensure directory exists for finalOutputPath before writing
+    fs.mkdirSync(path.dirname(finalOutputPath), { recursive: true })
+    fs.writeFileSync(finalOutputPath, JSON.stringify(circuitJson, null, 2))
   }
 
   return {
     circuitJson,
-    outputPath,
+    outputPath: finalOutputPath, // Return the consistently calculated final output path
   }
 }
