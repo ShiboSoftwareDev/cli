@@ -46,7 +46,7 @@
     "tscircuit": "^0.0.585-libonly",
     "tsx": "^4.7.1",
     "typed-ky": "^0.0.4",
-    "zod": "3"
+    "zod": "^4.0.16"
   },
   "dependencies": {
     "looks-same": "^9.0.1",
