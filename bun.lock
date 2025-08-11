@@ -53,6 +53,12 @@
         "typed-ky": "^0.0.4",
         "zod": "3",
       },
+      "peerDependencies": {
+        "tscircuit": "*",
+      },
+      "optionalPeers": [
+        "tscircuit",
+      ],
     },
   },
   "packages": {

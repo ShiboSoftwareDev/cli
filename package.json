@@ -48,6 +48,14 @@
     "typed-ky": "^0.0.4",
     "zod": "3"
   },
+   "peerDependencies": {
+    "tscircuit": "*"
+  },
+  "peerDependenciesMeta": {
+    "tscircuit": {
+      "optional": true
+    }
+  },
   "dependencies": {
     "looks-same": "^9.0.1",
     "sharp": "^0.34.3"
