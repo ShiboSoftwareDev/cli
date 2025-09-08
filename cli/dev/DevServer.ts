@@ -16,6 +16,7 @@ import Debug from "debug"
 import kleur from "kleur"
 import { loadProjectConfig } from "lib/project-config"
 import { shouldIgnorePath } from "lib/shared/should-ignore-path"
+import { getNpmDependencies } from "lib/dependency-analysis/get-npm-dependencies"
 
 const debug = Debug("tscircuit:devserver")
 
@@ -247,9 +248,33 @@ export class DevServer {
   }
 
   async upsertInitialFiles() {
-    const filePaths = getPackageFilePaths(this.projectDir, this.ignoredFiles)
+    const projectFiles = getPackageFilePaths(this.projectDir, this.ignoredFiles)
+    const allFilePathsToSync = [...projectFiles]
 
-    for (const filePath of filePaths) {
+    const npmDeps = getNpmDependencies(this.componentFilePath)
+
+    if (npmDeps.length > 0) {
+      console.log(kleur.gray(`Found npm dependencies: ${npmDeps.join(", ")}`))
+    }
+
+    for (const dep of npmDeps) {
+      try {
+        const pkgJsonPath = require.resolve(`${dep}/package.json`, {
+          paths: [this.projectDir],
+        })
+        const depPath = path.dirname(pkgJsonPath)
+
+        if (fs.existsSync(depPath)) {
+          debug(`Syncing npm dependency: ${dep}`)
+          const depFiles = getPackageFilePaths(depPath, [])
+          allFilePathsToSync.push(...depFiles)
+        }
+      } catch (e) {
+        // Ignore if we can't resolve a dependency
+      }
+    }
+
+    for (const filePath of allFilePathsToSync) {
       const fileContent = fs.readFileSync(filePath, "utf-8")
       await this.fsKy.post("api/files/upsert", {
         json: {
