@@ -10,6 +10,26 @@ import { getEntrypoint } from "lib/shared/get-entrypoint"
 import { globbySync } from "globby"
 import { findBoardFiles } from "lib/shared/find-board-files"
 import { DEFAULT_IGNORED_PATTERNS } from "lib/shared/should-ignore-path"
+import * as ts from "typescript"
+
+const findProjectRoot = (filePath: string): string => {
+  const startDir = path.dirname(filePath)
+
+  for (const indicator of [
+    "tscircuit.config.json",
+    "package.json",
+    "tsconfig.json",
+  ]) {
+    const configPath = ts.findConfigFile(startDir, fs.existsSync, indicator)
+    if (configPath) {
+      if (indicator === "tsconfig.json" && configPath.includes("node_modules"))
+        continue
+      return path.dirname(configPath)
+    }
+  }
+
+  return startDir
+}
 
 const findSelectableTsxFiles = (projectDir: string): string[] => {
   const boardFiles = findBoardFiles({ projectDir })
@@ -102,10 +122,12 @@ export const registerDev = (program: Command) => {
         console.warn("Failed to install types:", error)
       }
 
+      const projectDir = findProjectRoot(absolutePath)
+
       const server = new DevServer({
         port,
         componentFilePath: absolutePath,
-        projectDir: process.cwd(),
+        projectDir,
       })
 
       await server.start()

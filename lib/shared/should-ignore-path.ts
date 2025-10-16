@@ -5,6 +5,8 @@ export const DEFAULT_IGNORED_PATTERNS = [
   "**/node_modules/**",
   "**/.git/**",
   "**/.vscode/**",
+  "**/dist/**",
+  "**/build/**",
   // Ignore any directory that starts with a dot
   "**/.*/*",
   // Ignore dotfiles at the project root such as .env

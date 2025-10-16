@@ -14,9 +14,13 @@ import { getIndex } from "../site/getIndex"
 export const createHttpServer = async ({
   port = 3020,
   defaultMainComponentPath,
+  tsconfigPaths,
+  baseUrl,
 }: {
   port?: number
   defaultMainComponentPath?: string
+  tsconfigPaths?: Record<string, string[]>
+  baseUrl?: string
 }) => {
   const fileServerHandler = getNodeHandler(winterspecBundle as any, {})
 
@@ -59,6 +63,8 @@ export const createHttpServer = async ({
       const html = await getIndex(
         defaultMainComponentPath,
         fileServerApiBaseUrl,
+        tsconfigPaths,
+        baseUrl,
       )
       res.writeHead(200, { "Content-Type": "text/html" })
       res.end(html)

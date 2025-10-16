@@ -19,6 +19,7 @@ import Debug from "debug"
 import kleur from "kleur"
 import { loadProjectConfig } from "lib/project-config"
 import { shouldIgnorePath } from "lib/shared/should-ignore-path"
+import * as ts from "typescript"
 
 const debug = Debug("tscircuit:devserver")
 
@@ -82,12 +83,38 @@ export class DevServer {
   }
 
   async start() {
+    const tsconfigPath = ts.findConfigFile(
+      this.projectDir,
+      ts.sys.fileExists,
+      "tsconfig.json",
+    )
+    let tsconfigPaths: Record<string, string[]> | undefined
+    let baseUrl: string | undefined
+
+    if (tsconfigPath) {
+      const configFile = ts.readConfigFile(tsconfigPath, ts.sys.readFile)
+      const compilerOptions = configFile.config?.compilerOptions
+      if (compilerOptions?.paths) {
+        tsconfigPaths = compilerOptions.paths
+
+        if (compilerOptions.baseUrl) {
+          const absoluteBaseUrl = path.resolve(
+            path.dirname(tsconfigPath),
+            compilerOptions.baseUrl,
+          )
+          baseUrl = path.relative(this.projectDir, absoluteBaseUrl)
+        }
+      }
+    }
+
     const { server } = await createHttpServer({
       port: this.port,
       defaultMainComponentPath: path.relative(
         this.projectDir,
         this.componentFilePath,
       ),
+      tsconfigPaths,
+      baseUrl,
     })
     this.httpServer = server
 
