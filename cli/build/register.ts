@@ -20,6 +20,10 @@ import { buildKicadPcm } from "./build-kicad-pcm"
 import { buildPreviewGltf } from "./build-preview-gltf"
 import type { BuildFileResult } from "./build-preview-images"
 import { buildPreviewImages } from "./build-preview-images"
+import {
+  type DrcIgnoreCounts,
+  formatIgnoredDrcCounts,
+} from "./drc-diagnostic-filter"
 import { generateKicadProject } from "./generate-kicad-project"
 import type { GeneratedKicadProject } from "./generate-kicad-project"
 import { getBuildEntrypoints } from "./get-build-entrypoints"
@@ -113,6 +117,13 @@ export const registerBuild = (program: Command) => {
     )
     .option("--ignore-errors", "Do not exit with code 1 on errors")
     .option("--ignore-warnings", "Do not log warnings")
+    .option("--ignore-netlist-drc", "Ignore netlist DRC errors/warnings")
+    .option(
+      "--ignore-pin-specification-drc",
+      "Ignore pin-specification DRC errors/warnings",
+    )
+    .option("--ignore-placement-drc", "Ignore placement DRC errors/warnings")
+    .option("--ignore-routing-drc", "Ignore routing DRC errors/warnings")
     .option("--ignore-config", "Ignore options from tscircuit.config.json")
     .option("--disable-pcb", "Disable PCB outputs")
     .option("--disable-parts-engine", "Disable the parts engine")
@@ -284,6 +295,13 @@ export const registerBuild = (program: Command) => {
 
         let hasErrors = false
         let hasFatalErrors = false
+        const ignoredDrcByCategory: DrcIgnoreCounts = {
+          netlist: 0,
+          pin_specification: 0,
+          placement: 0,
+          routing: 0,
+          unknown: 0,
+        }
         const staticFileReferences: StaticBuildFileReference[] = []
 
         const builtFiles: BuildFileResult[] = []
@@ -311,6 +329,10 @@ export const registerBuild = (program: Command) => {
         const buildOptions = {
           ignoreErrors: resolvedOptions?.ignoreErrors,
           ignoreWarnings: resolvedOptions?.ignoreWarnings,
+          ignoreNetlistDrc: resolvedOptions?.ignoreNetlistDrc,
+          ignorePinSpecificationDrc: resolvedOptions?.ignorePinSpecificationDrc,
+          ignorePlacementDrc: resolvedOptions?.ignorePlacementDrc,
+          ignoreRoutingDrc: resolvedOptions?.ignoreRoutingDrc,
           platformConfig,
           profile: resolvedOptions?.profile,
           injectedProps,
@@ -348,6 +370,7 @@ export const registerBuild = (program: Command) => {
             ok: boolean
             circuitJson?: unknown[]
             hasErrors?: boolean
+            ignoredDrcByCategory?: DrcIgnoreCounts
             isFatalError?: { errorType: string; message: string }
           },
         ) => {
@@ -362,6 +385,18 @@ export const registerBuild = (program: Command) => {
 
           if (buildOutcome.hasErrors) {
             hasErrors = true
+          }
+          if (buildOutcome.ignoredDrcByCategory) {
+            ignoredDrcByCategory.netlist +=
+              buildOutcome.ignoredDrcByCategory.netlist
+            ignoredDrcByCategory.pin_specification +=
+              buildOutcome.ignoredDrcByCategory.pin_specification
+            ignoredDrcByCategory.placement +=
+              buildOutcome.ignoredDrcByCategory.placement
+            ignoredDrcByCategory.routing +=
+              buildOutcome.ignoredDrcByCategory.routing
+            ignoredDrcByCategory.unknown +=
+              buildOutcome.ignoredDrcByCategory.unknown
           }
 
           if (!buildOutcome.ok) {
@@ -534,6 +569,7 @@ export const registerBuild = (program: Command) => {
               await processBuildResult(result.filePath, result.outputPath, {
                 ok: result.ok,
                 hasErrors: result.hasErrors,
+                ignoredDrcByCategory: result.ignoredDrcByCategory,
                 isFatalError: result.isFatalError,
               })
 
@@ -784,6 +820,11 @@ export const registerBuild = (program: Command) => {
         const enabledOpts = [
           resolvedOptions?.site && "site",
           resolvedOptions?.transpile && "transpile",
+          resolvedOptions?.ignoreNetlistDrc && "ignore-netlist-drc",
+          resolvedOptions?.ignorePinSpecificationDrc &&
+            "ignore-pin-specification-drc",
+          resolvedOptions?.ignorePlacementDrc && "ignore-placement-drc",
+          resolvedOptions?.ignoreRoutingDrc && "ignore-routing-drc",
           resolvedOptions?.previewImages && "preview-images",
           resolvedOptions?.allImages && "all-images",
           resolvedOptions?.pngs && "pngs",
@@ -830,6 +871,15 @@ export const registerBuild = (program: Command) => {
         console.log(
           `  Output    ${kleur.dim(path.relative(process.cwd(), distDir) || "dist")}`,
         )
+        const totalIgnoredDrc = Object.values(ignoredDrcByCategory).reduce(
+          (sum, count) => sum + count,
+          0,
+        )
+        if (totalIgnoredDrc > 0) {
+          console.log(
+            `  Ignored DRC ${kleur.yellow(`${totalIgnoredDrc}`)} ${kleur.dim(`(${formatIgnoredDrcCounts(ignoredDrcByCategory)})`)}`,
+          )
+        }
         console.log(
           hasErrors
             ? kleur.yellow("\n⚠ Build completed with errors")
