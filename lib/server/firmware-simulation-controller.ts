@@ -297,8 +297,6 @@ export class FirmwareSimulationController {
   private hardwareInspection?: FirmwareHardwareInspection
   private inspectedCircuitHash?: string
   private lastResetPressAt?: number
-  private lastClockSyncAt?: number
-  private clockTimer?: ReturnType<typeof setTimeout>
   private isBuilding = false
   private isProgramming = false
   private buildStatus: FirmwareBuildStatus = "not_built"
@@ -435,7 +433,6 @@ export class FirmwareSimulationController {
           ? "overcurrent_fault"
           : "hardware_fault"
         this.deviceMode = "off"
-        this.stopRealTimeClock()
         return this.getStateWithProject()
       }
       this.isUsbPowered = true
@@ -443,7 +440,6 @@ export class FirmwareSimulationController {
       if (this.session) {
         this.sessionState = await this.session.powerOn()
         this.deviceMode = "application"
-        this.startRealTimeClock()
       } else {
         this.deviceMode = "sam_ba_bootloader"
       }
@@ -459,7 +455,6 @@ export class FirmwareSimulationController {
       this.usbPortStatus = "disconnected"
       this.deviceMode = "off"
       this.lastResetPressAt = undefined
-      this.stopRealTimeClock()
       this.errorMessage = undefined
       return this.getStateWithProject()
     })
@@ -488,7 +483,6 @@ export class FirmwareSimulationController {
         if (this.session) {
           this.sessionState = await this.session.powerOn()
           this.deviceMode = "application"
-          this.startRealTimeClock()
         }
         this.lastResetPressAt = undefined
         return this.getStateWithProject()
@@ -507,13 +501,11 @@ export class FirmwareSimulationController {
         this.sessionState = await this.session.powerOff()
         this.deviceMode = "sam_ba_bootloader"
         this.lastResetPressAt = undefined
-        this.stopRealTimeClock()
         return this.getStateWithProject()
       }
       await this.syncSessionToWallClock()
       this.sessionState = await this.session.reset()
       this.lastResetPressAt = now
-      this.startRealTimeClock()
       return this.getStateWithProject()
     })
   }
@@ -552,7 +544,6 @@ export class FirmwareSimulationController {
         this.usbPortStatus = "powered"
         this.deviceMode = "application"
         this.lastResetPressAt = undefined
-        this.startRealTimeClock()
       } catch (error) {
         this.errorMessage =
           error instanceof Error ? error.message : "Firmware simulation failed"
@@ -606,7 +597,6 @@ export class FirmwareSimulationController {
       this.usbPortStatus = "disconnected"
       this.deviceMode = "off"
       this.lastResetPressAt = undefined
-      this.stopRealTimeClock()
       return this.getStateWithProject()
     })
   }
@@ -653,55 +643,6 @@ export class FirmwareSimulationController {
     this.sessionState = await this.session.getState()
   }
 
-  private startRealTimeClock(): void {
-    if (
-      this.clockTimer ||
-      this.errorMessage ||
-      !this.session ||
-      !this.isUsbPowered ||
-      this.deviceMode !== "application"
-    ) {
-      return
-    }
-    this.lastClockSyncAt = Date.now()
-    this.clockTimer = setTimeout(() => {
-      this.clockTimer = undefined
-      const tickStartedAt = Date.now()
-      void this.runExclusive(async () => {
-        if (
-          !this.session ||
-          !this.isUsbPowered ||
-          this.deviceMode !== "application"
-        ) {
-          return
-        }
-        const elapsed = Math.max(
-          1,
-          Math.min(
-            250,
-            tickStartedAt - (this.lastClockSyncAt ?? tickStartedAt),
-          ),
-        )
-        this.sessionState = await this.session.runFor(elapsed)
-        this.lastClockSyncAt = tickStartedAt
-      })
-        .catch((error) => {
-          this.errorMessage =
-            error instanceof Error
-              ? error.message
-              : "Firmware execution stopped"
-          this.stopRealTimeClock()
-        })
-        .finally(() => this.startRealTimeClock())
-    }, 50)
-  }
-
-  private stopRealTimeClock(): void {
-    if (this.clockTimer) clearTimeout(this.clockTimer)
-    this.clockTimer = undefined
-    this.lastClockSyncAt = undefined
-  }
-
   private async getProjectState(): Promise<
     FirmwareProjectApiState | undefined
   > {
@@ -738,7 +679,6 @@ export class FirmwareSimulationController {
   }
 
   private async stopSession(): Promise<void> {
-    this.stopRealTimeClock()
     await this.session?.stop()
     this.session = undefined
     this.sessionState = undefined
