@@ -52,6 +52,7 @@ export interface FirmwareSimulationApiState {
   firmware_file_path?: string
   mcu_component_name?: string
   usb: {
+    connector_component_name?: string
     is_connected: boolean
     is_powered: boolean
     is_enumerated: boolean

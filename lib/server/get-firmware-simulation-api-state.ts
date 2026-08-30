@@ -86,6 +86,12 @@ export const getFirmwareSimulationApiState = (
     has_power_fault: hasPowerFault,
     display_status: getDisplayStatus(request),
     usb: {
+      ...(request.input?.hardware.usb?.connectorComponentName
+        ? {
+            connector_component_name:
+              request.input.hardware.usb.connectorComponentName,
+          }
+        : {}),
       is_connected: request.isUsbConnected,
       is_powered: request.isUsbPowered,
       is_enumerated:

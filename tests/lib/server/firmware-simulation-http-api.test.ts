@@ -46,7 +46,8 @@ test("uses handbook resource and verb routes for the firmware workbench", async 
         mcu: { componentName: "U1" },
         platformRepl: "platform.repl",
         leds: [],
-        buttons: [{ componentName: "SW1" }]
+        buttons: [{ componentName: "SW1" }],
+        usb: { connectorComponentName: "USB1" }
       },
       steps: []
     })
@@ -98,6 +99,9 @@ test("uses handbook resource and verb routes for the firmware workbench", async 
     expect(preparedSimulation.firmware_simulation.buttons).toEqual([
       { component_name: "SW1", is_pressed: false },
     ])
+    expect(
+      preparedSimulation.firmware_simulation.usb.connector_component_name,
+    ).toBe("USB1")
 
     const sourceFromPost = await fetch(`${apiBaseUrl}/firmware_source/get`, {
       method: "POST",
