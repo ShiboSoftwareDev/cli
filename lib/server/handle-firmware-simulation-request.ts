@@ -88,9 +88,15 @@ export const handleFirmwareSimulationRequest = async (request: {
       verb === "get" &&
       (method === "GET" || method === "POST")
     ) {
+      const requestBody =
+        method === "POST" ? await readJsonBody(httpRequest) : undefined
       await writeFirmwareSimulation({
         response,
-        firmwareSimulation: controller.refresh(),
+        firmwareSimulation: controller.refresh(
+          Array.isArray(requestBody?.circuit_json)
+            ? requestBody.circuit_json
+            : undefined,
+        ),
       })
       return
     }

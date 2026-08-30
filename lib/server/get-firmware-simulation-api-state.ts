@@ -21,6 +21,7 @@ interface FirmwareSimulationApiStateRequest {
   hardwareInspection?: FirmwareHardwareInspection
   resetPressRegistered: boolean
   input?: FirmwareSimulationInput
+  physicalButtons?: FirmwareSimulationSessionState["buttons"]
   project?: FirmwareProjectApiState
   sessionState?: FirmwareSimulationSessionState
   errorMessage?: string
@@ -56,6 +57,23 @@ export const getFirmwareSimulationApiState = (
   const hasPowerFault = request.usbDisplayStatus === "overcurrent_fault"
   const hardwareInspection = request.hardwareInspection
   const sessionState = request.sessionState
+  const buttons =
+    request.physicalButtons ??
+    sessionState?.buttons ??
+    request.input?.hardware.buttons.map((button) => ({
+      componentName: button.componentName,
+      isPressed: false,
+    })) ??
+    []
+  const leds = request.input
+    ? request.input.hardware.leds.map((led) => ({
+        componentName: led.componentName,
+        isOn:
+          sessionState?.leds.find(
+            (sessionLed) => sessionLed.componentName === led.componentName,
+          )?.isOn ?? false,
+      }))
+    : (sessionState?.leds ?? [])
 
   return {
     is_configured: request.isConfigured,
@@ -114,16 +132,16 @@ export const getFirmwareSimulationApiState = (
             sha256: sessionState.programming.sha256,
             is_verified: sessionState.programming.isVerified,
           },
-          buttons: sessionState.buttons.map((button) => ({
-            component_name: button.componentName,
-            is_pressed: button.isPressed,
-          })),
-          leds: sessionState.leds.map((led) => ({
-            component_name: led.componentName,
-            is_on: led.isOn,
-          })),
         }
-      : { buttons: [], leds: [] }),
+      : {}),
+    buttons: buttons.map((button) => ({
+      component_name: button.componentName,
+      is_pressed: button.isPressed,
+    })),
+    leds: leds.map((led) => ({
+      component_name: led.componentName,
+      is_on: led.isOn,
+    })),
     ...(request.errorMessage ? { error_message: request.errorMessage } : {}),
   }
 }

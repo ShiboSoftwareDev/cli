@@ -100,8 +100,8 @@ test("creates, updates, and deletes a firmware simulation session", async () => 
       hardware: {
         mcu: { componentName: "U1" },
         platformRepl: "platform.repl",
-        leds: [],
-        buttons: [],
+        leds: [{ componentName: "LED1" }],
+        buttons: [{ componentName: "SW1" }],
         reset: {
           componentName: "SW_RESET",
           mcuPortName: "RESET",
@@ -137,6 +137,29 @@ test("creates, updates, and deletes a firmware simulation session", async () => 
   })
   expect(controller.getState().display_status).toBe("stopped")
 
+  const prepared = await controller.refresh([])
+  expect(prepared.buttons).toEqual([
+    { component_name: "SW1", is_pressed: false },
+  ])
+  expect(prepared.leds).toEqual([{ component_name: "LED1", is_on: false }])
+
+  const heldWithoutPower = await controller.update({
+    buttonComponentName: "SW1",
+    isPressed: true,
+  })
+  expect(heldWithoutPower.buttons).toEqual([
+    { component_name: "SW1", is_pressed: true },
+  ])
+  expect(heldWithoutPower.usb.is_powered).toBe(false)
+
+  const resetWithoutPower = await controller.pressReset([])
+  expect(resetWithoutPower.reset_control?.presses_registered).toBe(0)
+  expect(resetWithoutPower.is_running).toBe(false)
+
+  await expect(controller.program([])).rejects.toThrow(
+    "USB_PROGRAMMER: NO_DEVICE",
+  )
+
   const initial = await controller.getStateWithProject()
   expect(initial.firmware_project?.display_status).toBe("not_built")
   expect((await controller.getSource()).content).toBe("initial source")
@@ -164,18 +187,22 @@ test("creates, updates, and deletes a firmware simulation session", async () => 
   expect(createdInput?.firmware.path).toBe(join(projectDir, "firmware.bin"))
   expect(created.firmware_file_path).toBe("firmware.bin")
   expect(created.programming?.bytes_written).toBe(324)
-  expect(created.leds).toEqual([{ component_name: "LED1", is_on: false }])
+  expect(created.buttons).toEqual([{ component_name: "SW1", is_pressed: true }])
+  expect(created.leds).toEqual([{ component_name: "LED1", is_on: true }])
 
-  const pressed = await controller.update({
+  const released = await controller.update({
     buttonComponentName: "SW1",
-    isPressed: true,
+    isPressed: false,
   })
-  expect(pressed.buttons).toEqual([{ component_name: "SW1", is_pressed: true }])
-  expect(pressed.leds).toEqual([{ component_name: "LED1", is_on: true }])
+  expect(released.buttons).toEqual([
+    { component_name: "SW1", is_pressed: false },
+  ])
+  expect(released.leds).toEqual([{ component_name: "LED1", is_on: false }])
 
   const unplugged = await controller.disconnectUsb()
   expect(unplugged.usb.is_powered).toBe(false)
   expect(unplugged.is_running).toBe(false)
+  expect(unplugged.leds).toEqual([{ component_name: "LED1", is_on: false }])
 
   const reconnected = await controller.connectUsb([])
   expect(reconnected.is_in_bootloader).toBe(false)

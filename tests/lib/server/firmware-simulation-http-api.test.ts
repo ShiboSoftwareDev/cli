@@ -46,7 +46,7 @@ test("uses handbook resource and verb routes for the firmware workbench", async 
         mcu: { componentName: "U1" },
         platformRepl: "platform.repl",
         leds: [],
-        buttons: []
+        buttons: [{ componentName: "SW1" }]
       },
       steps: []
     })
@@ -87,6 +87,18 @@ test("uses handbook resource and verb routes for the firmware workbench", async 
   const apiBaseUrl = await listenOnRandomPort(server)
 
   try {
+    const preparedSimulation = await fetch(
+      `${apiBaseUrl}/firmware_simulation/get`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ circuit_json: [] }),
+      },
+    ).then((response) => response.json())
+    expect(preparedSimulation.firmware_simulation.buttons).toEqual([
+      { component_name: "SW1", is_pressed: false },
+    ])
+
     const sourceFromPost = await fetch(`${apiBaseUrl}/firmware_source/get`, {
       method: "POST",
     }).then((response) => response.json())

@@ -42,6 +42,7 @@ export class FirmwareSimulationController {
   private session?: RenodeFirmwareSession
   private sessionState?: FirmwareSimulationSessionState
   private input?: FirmwareSimulationInput
+  private physicalButtons: FirmwareSimulationSessionState["buttons"] = []
   private workbench?: ResolvedFirmwareWorkbench
   private isUsbConnected = false
   private isUsbPowered = false
@@ -87,6 +88,7 @@ export class FirmwareSimulationController {
       hardwareInspection: this.hardwareInspection,
       resetPressRegistered: this.isResetPressRegistered(),
       input: this.input,
+      physicalButtons: this.physicalButtons,
       sessionState: this.sessionState,
       errorMessage: this.errorMessage,
     })
@@ -106,8 +108,9 @@ export class FirmwareSimulationController {
     return state
   }
 
-  refresh(): Promise<FirmwareSimulationApiState> {
+  refresh(circuitJson?: CircuitJson): Promise<FirmwareSimulationApiState> {
     return this.runExclusive(async () => {
+      if (circuitJson) await this.loadInput(circuitJson)
       await this.syncSessionToWallClock()
       return this.getStateWithProject()
     })
@@ -193,6 +196,7 @@ export class FirmwareSimulationController {
       this.usbDisplayStatus = "powered"
       if (this.session) {
         this.sessionState = await this.session.powerOn()
+        await this.applyPhysicalButtonsToSession()
         this.deviceMode = "application"
       } else {
         this.deviceMode = "sam_ba_bootloader"
@@ -216,33 +220,27 @@ export class FirmwareSimulationController {
 
   pressReset(circuitJson: CircuitJson): Promise<FirmwareSimulationApiState> {
     return this.runExclusive(async () => {
-      if (!this.isUsbConnected) {
-        throw new Error(
-          "The reset switch has no effect while the board is unpowered",
-        )
-      }
-      const inspection = await this.inspectCircuit(circuitJson)
-      if (inspection.hasErrors) {
-        throw new Error(
-          "Fix the detected hardware faults before applying power",
-        )
-      }
-      if (!this.isUsbPowered) throw new Error("The board is not powered")
+      await this.loadInput(circuitJson)
       const reset = this.input?.hardware.reset
       if (!reset) {
         throw new Error("No physical reset switch is declared for this board")
       }
       this.errorMessage = undefined
+      if (!this.isUsbPowered) {
+        this.lastResetPressAt = undefined
+        return this.getStateWithProject()
+      }
       if (this.deviceMode === "sam_ba_bootloader") {
         if (this.session) {
           this.sessionState = await this.session.powerOn()
+          await this.applyPhysicalButtonsToSession()
           this.deviceMode = "application"
         }
         this.lastResetPressAt = undefined
         return this.getStateWithProject()
       }
       if (this.deviceMode !== "application" || !this.session) {
-        throw new Error("The reset switch is not connected to a running MCU")
+        return this.getStateWithProject()
       }
       const now = Date.now()
       const maxInterval =
@@ -259,6 +257,7 @@ export class FirmwareSimulationController {
       }
       await this.syncSessionToWallClock()
       this.sessionState = await this.session.reset()
+      await this.applyPhysicalButtonsToSession()
       this.lastResetPressAt = now
       return this.getStateWithProject()
     })
@@ -267,36 +266,31 @@ export class FirmwareSimulationController {
   program(circuitJson: CircuitJson): Promise<FirmwareSimulationApiState> {
     return this.runExclusive(async () => {
       if (!this.isUsbConnected) {
-        throw new Error("Plug in the USB cable before programming firmware")
+        throw new Error("USB_PROGRAMMER: NO_DEVICE (USB disconnected)")
       }
       if (this.deviceMode !== "sam_ba_bootloader") {
-        throw new Error(
-          "Double-press the physical reset switch to enter SAM-BA before programming",
-        )
+        throw new Error("USB_PROGRAMMER: SAM_BA_NOT_ENUMERATED")
       }
       const inspection = await this.inspectCircuit(circuitJson)
       if (inspection.hasErrors) {
-        throw new Error("Fix the detected hardware faults before programming")
+        throw new Error("USB_PROGRAMMER: HARDWARE_DRC_FAILED")
       }
-      if (!this.isUsbPowered)
-        throw new Error("USB VBUS is not powering the board")
+      if (!this.isUsbPowered) throw new Error("USB_PROGRAMMER: VBUS_ABSENT")
       const project = await this.getProjectState()
       if (
         project &&
         (!project.has_build_artifact || !project.is_build_current)
       ) {
-        throw new Error("Build the current firmware source before programming")
+        throw new Error("USB_PROGRAMMER: ARTIFACT_MISSING_OR_STALE")
       }
       this.isProgramming = true
       this.errorMessage = undefined
       try {
         await this.stopSession()
-        this.input = await loadFirmwareSimulationInput({
-          projectDir: this.projectDir,
-          circuitJson,
-        })
+        this.input = await this.loadInput(circuitJson)
         this.session = await this.createSession(this.input)
         this.sessionState = await this.session.getState()
+        await this.applyPhysicalButtonsToSession()
         this.isUsbPowered = true
         this.usbDisplayStatus = "powered"
         this.deviceMode = "application"
@@ -322,20 +316,33 @@ export class FirmwareSimulationController {
     isPressed?: boolean
   }): Promise<FirmwareSimulationApiState> {
     return this.runExclusive(async () => {
-      if (!this.session) throw new Error("No firmware simulation is running")
       this.errorMessage = undefined
       try {
-        await this.syncSessionToWallClock()
-        if (request.buttonComponentName !== undefined) {
-          if (request.isPressed === undefined) {
-            throw new Error("Button updates require is_pressed")
-          }
+        if (request.buttonComponentName === undefined) {
+          throw new Error("A physical switch action is required")
+        }
+        if (request.isPressed === undefined) {
+          throw new Error("Button updates require is_pressed")
+        }
+        const physicalButton = this.physicalButtons.find(
+          (button) => button.componentName === request.buttonComponentName,
+        )
+        if (!physicalButton) {
+          throw new Error(
+            `Physical switch ${request.buttonComponentName} is not declared`,
+          )
+        }
+        physicalButton.isPressed = request.isPressed
+        if (
+          this.session &&
+          this.isUsbPowered &&
+          this.deviceMode === "application"
+        ) {
+          await this.syncSessionToWallClock()
           this.sessionState = await this.session.setButton({
             componentName: request.buttonComponentName,
             isPressed: request.isPressed,
           })
-        } else {
-          throw new Error("A physical switch action is required")
         }
         return this.getStateWithProject()
       } catch (error) {
@@ -372,10 +379,7 @@ export class FirmwareSimulationController {
     ) {
       return this.hardwareInspection
     }
-    this.input = await loadFirmwareSimulationInput({
-      projectDir: this.projectDir,
-      circuitJson,
-    })
+    this.input = await this.loadInput(circuitJson)
     this.hardwareInspection = await this.inspectHardware({
       circuitJson,
       input: this.input,
@@ -401,6 +405,32 @@ export class FirmwareSimulationController {
       return
     }
     this.sessionState = await this.session.getState()
+  }
+
+  private async loadInput(
+    circuitJson: CircuitJson,
+  ): Promise<FirmwareSimulationInput> {
+    const input = await loadFirmwareSimulationInput({
+      projectDir: this.projectDir,
+      circuitJson,
+    })
+    this.input = input
+    this.physicalButtons = input.hardware.buttons.map((button) => ({
+      componentName: button.componentName,
+      isPressed:
+        this.physicalButtons.find(
+          (physicalButton) =>
+            physicalButton.componentName === button.componentName,
+        )?.isPressed ?? false,
+    }))
+    return input
+  }
+
+  private async applyPhysicalButtonsToSession(): Promise<void> {
+    if (!this.session || !this.isUsbPowered) return
+    for (const button of this.physicalButtons) {
+      this.sessionState = await this.session.setButton(button)
+    }
   }
 
   private async getProjectState(): Promise<
