@@ -8,6 +8,8 @@ interface FirmwareRequestBody {
   is_connected?: boolean
   button_component_name?: string
   is_pressed?: boolean
+  switch_component_name?: string
+  is_closed?: boolean
 }
 
 const writeJson = (request: {
@@ -185,6 +187,12 @@ export const handleFirmwareSimulationRequest = async (request: {
             : {}),
           ...(typeof requestBody.is_pressed === "boolean"
             ? { isPressed: requestBody.is_pressed }
+            : {}),
+          ...(typeof requestBody.switch_component_name === "string"
+            ? { switchComponentName: requestBody.switch_component_name }
+            : {}),
+          ...(typeof requestBody.is_closed === "boolean"
+            ? { isClosed: requestBody.is_closed }
             : {}),
         }),
       })

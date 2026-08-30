@@ -84,6 +84,12 @@ export interface FirmwareSimulationApiState {
     component_name: string
     is_pressed: boolean
   }>
+  direct_switches: Array<{
+    component_name: string
+    led_component_name: string
+    actuation: "momentary" | "latching"
+    is_closed: boolean
+  }>
   leds: Array<{
     component_name: string
     is_on: boolean

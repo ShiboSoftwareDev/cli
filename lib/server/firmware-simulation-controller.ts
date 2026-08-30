@@ -44,6 +44,10 @@ export class FirmwareSimulationController {
   private sessionState?: FirmwareSimulationSessionState
   private input?: FirmwareSimulationInput
   private physicalButtons: FirmwareSimulationSessionState["buttons"] = []
+  private physicalDirectSwitches: Array<{
+    componentName: string
+    isClosed: boolean
+  }> = []
   private workbench?: ResolvedFirmwareWorkbench
   private isUsbConnected = false
   private isUsbPowered = false
@@ -91,6 +95,7 @@ export class FirmwareSimulationController {
       resetPressRegistered: this.isResetPressRegistered(),
       input: this.input,
       physicalButtons: this.physicalButtons,
+      physicalDirectSwitches: this.physicalDirectSwitches,
       sessionState: this.sessionState,
       errorMessage: this.errorMessage,
     })
@@ -316,22 +321,46 @@ export class FirmwareSimulationController {
   update(request: {
     buttonComponentName?: string
     isPressed?: boolean
+    switchComponentName?: string
+    isClosed?: boolean
   }): Promise<FirmwareSimulationApiState> {
     return this.runExclusive(async () => {
       this.errorMessage = undefined
       try {
-        if (request.buttonComponentName === undefined) {
+        if (
+          request.buttonComponentName === undefined &&
+          request.switchComponentName === undefined
+        ) {
           throw new Error("A physical switch action is required")
         }
-        if (request.isPressed === undefined) {
-          throw new Error("Button updates require is_pressed")
+        if (request.switchComponentName !== undefined) {
+          if (request.isClosed === undefined) {
+            throw new Error("Direct switch updates require is_closed")
+          }
+          const physicalSwitch = this.physicalDirectSwitches.find(
+            (directSwitch) =>
+              directSwitch.componentName === request.switchComponentName,
+          )
+          if (!physicalSwitch) {
+            throw new Error(
+              `Direct switch ${request.switchComponentName} is not declared`,
+            )
+          }
+          physicalSwitch.isClosed = request.isClosed
+          return this.getStateWithProject()
         }
+        const buttonComponentName = request.buttonComponentName
+        if (buttonComponentName === undefined) {
+          throw new Error("A physical button action is required")
+        }
+        if (request.isPressed === undefined)
+          throw new Error("Button updates require is_pressed")
         const physicalButton = this.physicalButtons.find(
-          (button) => button.componentName === request.buttonComponentName,
+          (button) => button.componentName === buttonComponentName,
         )
         if (!physicalButton) {
           throw new Error(
-            `Physical switch ${request.buttonComponentName} is not declared`,
+            `Physical switch ${buttonComponentName} is not declared`,
           )
         }
         physicalButton.isPressed = request.isPressed
@@ -342,7 +371,7 @@ export class FirmwareSimulationController {
         ) {
           await this.syncSessionToWallClock()
           this.sessionState = await this.session.setButton({
-            componentName: request.buttonComponentName,
+            componentName: buttonComponentName,
             isPressed: request.isPressed,
           })
         }
@@ -424,6 +453,16 @@ export class FirmwareSimulationController {
           (physicalButton) =>
             physicalButton.componentName === button.componentName,
         )?.isPressed ?? false,
+    }))
+    this.physicalDirectSwitches = (
+      input.hardware.directSwitchLedCircuits ?? []
+    ).map((circuit) => ({
+      componentName: circuit.switchComponentName,
+      isClosed:
+        this.physicalDirectSwitches.find(
+          (physicalSwitch) =>
+            physicalSwitch.componentName === circuit.switchComponentName,
+        )?.isClosed ?? false,
     }))
     return input
   }

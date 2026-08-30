@@ -19,7 +19,7 @@
         "@tscircuit/krt-wasm": "^0.1.6",
         "@tscircuit/math-utils": "0.0.36",
         "@tscircuit/props": "^0.0.612",
-        "@tscircuit/renode-firmware-engine": "github:ShiboSoftwareDev/renode-firmware-engine#9b46f21",
+        "@tscircuit/renode-firmware-engine": "github:ShiboSoftwareDev/renode-firmware-engine#80d058fd06fcfbe8dff04de3139a1bb8116a77c6",
         "@tscircuit/runframe": "^0.0.2615",
         "@tscircuit/schematic-match-adapt": "^0.0.22",
         "@tscircuit/solver-utils": "0.0.16",
@@ -436,7 +436,7 @@
 
     "@tscircuit/props": ["@tscircuit/props@0.0.612", "", { "peerDependencies": { "circuit-json": "*", "react": "*", "zod": "*" } }, "sha512-IGQbizDpQPXWXifdrmUEiU9W1tkyz98t6TeJhp+4gyfK405whQgvX4pjTFujV+ch2qy6zYt/TzHE+8A8RsdaFQ=="],
 
-    "@tscircuit/renode-firmware-engine": ["@tscircuit/renode-firmware-engine@github:ShiboSoftwareDev/renode-firmware-engine#9b46f21", { "peerDependencies": { "circuit-json": "*", "typescript": "^5" } }, "ShiboSoftwareDev-renode-firmware-engine-9b46f21"],
+    "@tscircuit/renode-firmware-engine": ["@tscircuit/renode-firmware-engine@github:ShiboSoftwareDev/renode-firmware-engine#80d058f", { "peerDependencies": { "circuit-json": "*", "typescript": "^5" } }, "ShiboSoftwareDev-renode-firmware-engine-80d058f"],
 
     "@tscircuit/runframe": ["@tscircuit/runframe@0.0.2615", "", { "dependencies": { "@tscircuit/core": "^0.0.1705", "@tscircuit/eval": "^0.0.1315", "@tscircuit/solver-utils": "^0.0.7", "debug": "^4.4.0", "format-si-unit": "^0.0.12" } }, "sha512-Em1/gs90J0krQhvjSxE5gH4TimGBJIIv2l7TwqJOiWRczGOx0FDwp+VGJI8iUD8Zb3yAo9IKu2ndPF0KbXDFoQ=="],
 

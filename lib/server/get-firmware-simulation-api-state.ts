@@ -22,6 +22,10 @@ interface FirmwareSimulationApiStateRequest {
   resetPressRegistered: boolean
   input?: FirmwareSimulationInput
   physicalButtons?: FirmwareSimulationSessionState["buttons"]
+  physicalDirectSwitches?: Array<{
+    componentName: string
+    isClosed: boolean
+  }>
   project?: FirmwareProjectApiState
   sessionState?: FirmwareSimulationSessionState
   errorMessage?: string
@@ -74,6 +78,22 @@ export const getFirmwareSimulationApiState = (
           )?.isOn ?? false,
       }))
     : (sessionState?.leds ?? [])
+  const directSwitches = (
+    request.input?.hardware.directSwitchLedCircuits ?? []
+  ).map((circuit) => ({
+    componentName: circuit.switchComponentName,
+    ledComponentName: circuit.ledComponentName,
+    actuation: circuit.actuation,
+    isClosed:
+      request.physicalDirectSwitches?.find(
+        (directSwitch) =>
+          directSwitch.componentName === circuit.switchComponentName,
+      )?.isClosed ?? false,
+  }))
+  const directLeds = directSwitches.map((directSwitch) => ({
+    componentName: directSwitch.ledComponentName,
+    isOn: request.isUsbPowered && directSwitch.isClosed,
+  }))
 
   return {
     is_configured: request.isConfigured,
@@ -144,7 +164,13 @@ export const getFirmwareSimulationApiState = (
       component_name: button.componentName,
       is_pressed: button.isPressed,
     })),
-    leds: leds.map((led) => ({
+    direct_switches: directSwitches.map((directSwitch) => ({
+      component_name: directSwitch.componentName,
+      led_component_name: directSwitch.ledComponentName,
+      actuation: directSwitch.actuation,
+      is_closed: directSwitch.isClosed,
+    })),
+    leds: [...leds, ...directLeds].map((led) => ({
       component_name: led.componentName,
       is_on: led.isOn,
     })),

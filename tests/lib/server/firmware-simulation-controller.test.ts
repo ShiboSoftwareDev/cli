@@ -103,6 +103,11 @@ test("creates, updates, and deletes a firmware simulation session", async () => 
         platformRepl: "platform.repl",
         leds: [{ componentName: "LED1" }],
         buttons: [{ componentName: "SW1" }],
+        directSwitchLedCircuits: [{
+          switchComponentName: "SW_DIRECT_1",
+          ledComponentName: "LED_DIRECT_1",
+          actuation: "momentary"
+        }],
         reset: {
           componentName: "SW_RESET",
           mcuPortName: "RESET",
@@ -142,7 +147,32 @@ test("creates, updates, and deletes a firmware simulation session", async () => 
   expect(prepared.buttons).toEqual([
     { component_name: "SW1", is_pressed: false },
   ])
-  expect(prepared.leds).toEqual([{ component_name: "LED1", is_on: false }])
+  expect(prepared.leds).toContainEqual({
+    component_name: "LED1",
+    is_on: false,
+  })
+  expect(prepared.direct_switches).toEqual([
+    {
+      component_name: "SW_DIRECT_1",
+      led_component_name: "LED_DIRECT_1",
+      actuation: "momentary",
+      is_closed: false,
+    },
+  ])
+  expect(prepared.leds).toContainEqual({
+    component_name: "LED_DIRECT_1",
+    is_on: false,
+  })
+
+  const closedWithoutPower = await controller.update({
+    switchComponentName: "SW_DIRECT_1",
+    isClosed: true,
+  })
+  expect(closedWithoutPower.direct_switches[0]?.is_closed).toBe(true)
+  expect(closedWithoutPower.leds).toContainEqual({
+    component_name: "LED_DIRECT_1",
+    is_on: false,
+  })
 
   const heldWithoutPower = await controller.update({
     buttonComponentName: "SW1",
@@ -182,6 +212,10 @@ test("creates, updates, and deletes a firmware simulation session", async () => 
     display_status: "powered",
   })
   expect(connected.is_in_bootloader).toBe(true)
+  expect(connected.leds).toContainEqual({
+    component_name: "LED_DIRECT_1",
+    is_on: true,
+  })
 
   const created = await controller.program([])
   expect(created.display_status).toBe("ready")
@@ -189,7 +223,7 @@ test("creates, updates, and deletes a firmware simulation session", async () => 
   expect(created.firmware_file_path).toBe("firmware.bin")
   expect(created.programming?.bytes_written).toBe(324)
   expect(created.buttons).toEqual([{ component_name: "SW1", is_pressed: true }])
-  expect(created.leds).toEqual([{ component_name: "LED1", is_on: true }])
+  expect(created.leds).toContainEqual({ component_name: "LED1", is_on: true })
 
   const released = await controller.update({
     buttonComponentName: "SW1",
@@ -198,12 +232,22 @@ test("creates, updates, and deletes a firmware simulation session", async () => 
   expect(released.buttons).toEqual([
     { component_name: "SW1", is_pressed: false },
   ])
-  expect(released.leds).toEqual([{ component_name: "LED1", is_on: false }])
+  expect(released.leds).toContainEqual({
+    component_name: "LED1",
+    is_on: false,
+  })
 
   const unplugged = await controller.disconnectUsb()
   expect(unplugged.usb.is_powered).toBe(false)
   expect(unplugged.is_running).toBe(false)
-  expect(unplugged.leds).toEqual([{ component_name: "LED1", is_on: false }])
+  expect(unplugged.leds).toContainEqual({
+    component_name: "LED1",
+    is_on: false,
+  })
+  expect(unplugged.leds).toContainEqual({
+    component_name: "LED_DIRECT_1",
+    is_on: false,
+  })
 
   const reconnected = await controller.connectUsb([])
   expect(reconnected.is_in_bootloader).toBe(false)

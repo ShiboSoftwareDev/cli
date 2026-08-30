@@ -48,6 +48,11 @@ test("uses handbook resource and verb routes for the firmware workbench", async 
         platformRepl: "platform.repl",
         leds: [],
         buttons: [{ componentName: "SW1" }],
+        directSwitchLedCircuits: [{
+          switchComponentName: "SW_DIRECT_1",
+          ledComponentName: "LED_DIRECT_1",
+          actuation: "latching"
+        }],
         usb: { connectorComponentName: "USB1" }
       },
       steps: []
@@ -103,6 +108,30 @@ test("uses handbook resource and verb routes for the firmware workbench", async 
     expect(
       preparedSimulation.firmware_simulation.usb.connector_component_name,
     ).toBe("USB1")
+    expect(preparedSimulation.firmware_simulation.direct_switches).toEqual([
+      {
+        component_name: "SW_DIRECT_1",
+        led_component_name: "LED_DIRECT_1",
+        actuation: "latching",
+        is_closed: false,
+      },
+    ])
+
+    const switchUpdate = await fetch(
+      `${apiBaseUrl}/firmware_simulation/update`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          switch_component_name: "SW_DIRECT_1",
+          is_closed: true,
+        }),
+      },
+    ).then((response) => response.json())
+    expect(switchUpdate.firmware_simulation.direct_switches[0]).toMatchObject({
+      component_name: "SW_DIRECT_1",
+      is_closed: true,
+    })
 
     const sourceFromPost = await fetch(`${apiBaseUrl}/firmware_source/get`, {
       method: "POST",
