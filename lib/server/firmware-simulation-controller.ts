@@ -1,11 +1,10 @@
 import { createHash } from "node:crypto"
 import { readFile, stat, writeFile } from "node:fs/promises"
 import path from "node:path"
-import {
-  createDockerRenodeFirmwareSession,
-  type FirmwareSimulationInput,
-  type FirmwareSimulationSessionState,
-  type RenodeFirmwareSession,
+import type {
+  FirmwareSimulationInput,
+  FirmwareSimulationSessionState,
+  RenodeFirmwareSession,
 } from "@tscircuit/renode-firmware-engine"
 import type { CircuitJson } from "circuit-json"
 import {
@@ -16,8 +15,10 @@ import {
 } from "lib/firmware-simulation/firmware-workbench"
 import {
   getFirmwareSimulationConfigPath,
+  isFirmwareSimulationConfigured,
   loadFirmwareSimulationInput,
 } from "lib/firmware-simulation/load-firmware-simulation-config"
+import { createConfiguredFirmwareSession } from "lib/firmware-simulation/load-firmware-simulation-engine"
 import {
   type FirmwareHardwareInspection,
   inspectFirmwareHardware,
@@ -70,15 +71,16 @@ export class FirmwareSimulationController {
     } = {},
   ) {
     this.createSession =
-      options.createSession ?? createDockerRenodeFirmwareSession
+      options.createSession ??
+      ((input) =>
+        createConfiguredFirmwareSession({ projectDir: this.projectDir, input }))
     this.runBuild = options.runBuild ?? runFirmwareBuildProcess
     this.inspectHardware = options.inspectHardware ?? inspectFirmwareHardware
   }
 
   getState(): FirmwareSimulationApiState {
     const state = getFirmwareSimulationApiState({
-      isConfigured:
-        getFirmwareSimulationConfigPath(this.projectDir) !== undefined,
+      isConfigured: isFirmwareSimulationConfigured(this.projectDir),
       isBuilding: this.isBuilding,
       isProgramming: this.isProgramming,
       isUsbConnected: this.isUsbConnected,

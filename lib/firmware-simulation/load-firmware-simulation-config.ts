@@ -9,6 +9,7 @@ import type { CircuitJson } from "circuit-json"
 import { loadProjectConfig } from "lib/project-config"
 
 export interface LoadedFirmwareSimulationConfig {
+  engineName: string
   configPath: string
   inputFactory: FirmwareSimulationInputFactory
   firmwareWorkbench?: FirmwareWorkbenchConfig
@@ -48,9 +49,23 @@ export const getFirmwareSimulationConfigPath = (
   return configPath
 }
 
+export const getFirmwareSimulationEngineName = (
+  projectDir: string,
+): string | undefined => loadProjectConfig(projectDir)?.firmwareSimulationEngine
+
+export const isFirmwareSimulationConfigured = (projectDir: string): boolean =>
+  getFirmwareSimulationEngineName(projectDir) !== undefined &&
+  getFirmwareSimulationConfigPath(projectDir) !== undefined
+
 export const loadFirmwareSimulationConfig = async (
   projectDir: string,
 ): Promise<LoadedFirmwareSimulationConfig> => {
+  const engineName = getFirmwareSimulationEngineName(projectDir)
+  if (!engineName) {
+    throw new Error(
+      "Set firmwareSimulationEngine in tscircuit.config.json before starting firmware simulation",
+    )
+  }
   const configPath = getFirmwareSimulationConfigPath(projectDir)
   if (!configPath) {
     throw new Error(
@@ -69,6 +84,7 @@ export const loadFirmwareSimulationConfig = async (
     )
   }
   return {
+    engineName,
     configPath,
     inputFactory,
     firmwareWorkbench: configModule.firmwareWorkbench,

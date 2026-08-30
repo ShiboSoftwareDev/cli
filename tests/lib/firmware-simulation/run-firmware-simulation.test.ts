@@ -9,6 +9,7 @@ test("builds the configured firmware before inspection and simulation", async ()
   await writeFile(
     join(projectDir, "tscircuit.config.json"),
     JSON.stringify({
+      firmwareSimulationEngine: "renode",
       firmwareSimulationConfigPath: "firmware-simulation.js",
     }),
   )

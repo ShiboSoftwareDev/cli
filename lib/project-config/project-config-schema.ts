@@ -20,6 +20,7 @@ export const projectConfigSchema = z.object({
   libraryEntrypoint: z.string().optional(),
   previewComponentPath: z.string().optional(),
   siteDefaultComponentPath: z.string().optional(),
+  firmwareSimulationEngine: z.literal("renode").optional(),
   firmwareSimulationConfigPath: z.string().optional(),
   ignoredFiles: z.array(z.string()).optional(),
   includeBoardFiles: z.array(z.string()).optional(),

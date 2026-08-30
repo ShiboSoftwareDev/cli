@@ -82,6 +82,7 @@ test("creates, updates, and deletes a firmware simulation session", async () => 
   await writeFile(
     join(projectDir, "tscircuit.config.json"),
     JSON.stringify({
+      firmwareSimulationEngine: "renode",
       firmwareSimulationConfigPath: "firmware-simulation.js",
     }),
   )

@@ -1,6 +1,4 @@
 import {
-  createDockerRenodeRunner,
-  createRenodeFirmwareEngine,
   type FirmwareSimulationInput,
   type FirmwareSimulationResult,
 } from "@tscircuit/renode-firmware-engine"
@@ -16,6 +14,7 @@ import {
   inspectFirmwareHardware,
 } from "./inspect-firmware-hardware"
 import { loadFirmwareSimulationInput } from "./load-firmware-simulation-config"
+import { simulateWithConfiguredFirmwareEngine } from "./load-firmware-simulation-engine"
 
 interface FirmwareSimulationRuntime {
   runBuild?: RunFirmwareBuild
@@ -26,15 +25,6 @@ interface FirmwareSimulationRuntime {
   simulate?: (
     input: FirmwareSimulationInput,
   ) => Promise<FirmwareSimulationResult>
-}
-
-const simulateWithDockerRenode = (
-  input: FirmwareSimulationInput,
-): Promise<FirmwareSimulationResult> => {
-  const engine = createRenodeFirmwareEngine({
-    runner: createDockerRenodeRunner(),
-  })
-  return engine.simulate(input)
 }
 
 export const runFirmwareSimulation = async (
@@ -72,5 +62,10 @@ export const runFirmwareSimulation = async (
       ].join("\n"),
     )
   }
-  return (runtime.simulate ?? simulateWithDockerRenode)(input)
+  return runtime.simulate
+    ? runtime.simulate(input)
+    : simulateWithConfiguredFirmwareEngine({
+        projectDir: request.projectDir,
+        input,
+      })
 }

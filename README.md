@@ -13,11 +13,20 @@ tsci dev
 
 ### Firmware simulation
 
-Projects with `firmwareSimulationConfigPath` in `tscircuit.config.json` get a
-**Firmware Simulation** tab in `tsci dev`. The tab follows the physical bench
-workflow: edit and build the firmware, plug in USB, use the board's reset switch
-to enter its bootloader, program it over USB, then press switches and observe
-LEDs on the evaluated schematic. It does not expose virtual-clock controls.
+Projects that select `"firmwareSimulationEngine": "renode"` and provide a
+`firmwareSimulationConfigPath` in `tscircuit.config.json` get a **Firmware
+Simulation** tab in `tsci dev`. The Renode adapter and its pinned native runtime
+are loaded only for those projects. The tab follows the physical bench workflow:
+edit and build the firmware, plug in USB, use the board's reset switch to enter
+its bootloader, program it over USB, then press switches and observe LEDs on the
+evaluated schematic. It does not expose virtual-clock controls.
+
+```json
+{
+  "firmwareSimulationEngine": "renode",
+  "firmwareSimulationConfigPath": "firmware-simulation.ts"
+}
+```
 
 The non-interactive equivalent builds the configured firmware artifact, checks
 the logical and routed-copper hardware for faults, programs it through Renode's

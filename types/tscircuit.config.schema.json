@@ -26,6 +26,11 @@
       "type": "string",
       "description": "Default component path to show in generated static sites."
     },
+    "firmwareSimulationEngine": {
+      "type": "string",
+      "enum": ["renode"],
+      "description": "Firmware engine loaded on demand when firmware simulation is used."
+    },
     "firmwareSimulationConfigPath": {
       "type": "string",
       "description": "Project-relative path to a firmware simulation factory used by tsci dev."

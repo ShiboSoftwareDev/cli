@@ -9,6 +9,7 @@ import runFrameStandaloneBundleContent from "@tscircuit/runframe/standalone" wit
 }
 import { getNodeHandler } from "winterspec/adapters/node"
 import pkg from "../../package.json"
+import { prepareFirmwareSimulationEngine } from "../firmware-simulation/load-firmware-simulation-engine"
 
 // @ts-ignore
 import winterspecBundle from "@tscircuit/file-server/dist/bundle.js"
@@ -72,6 +73,13 @@ export const createHttpServer = async ({
   const firmwareSimulationController = projectDir
     ? new FirmwareSimulationController(projectDir)
     : undefined
+  if (projectDir) {
+    void prepareFirmwareSimulationEngine(projectDir).catch((error) => {
+      console.error(
+        `[firmware] ${error instanceof Error ? error.message : "Unable to prepare firmware simulation engine"}`,
+      )
+    })
+  }
 
   // Create PCM proxy if enabled
   const pcmProxy =
