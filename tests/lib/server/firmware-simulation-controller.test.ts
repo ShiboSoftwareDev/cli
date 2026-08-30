@@ -8,7 +8,7 @@ import type {
   RenodeFirmwareSession,
 } from "@tscircuit/renode-firmware-engine"
 import { FirmwareSimulationController } from "lib/server/firmware-simulation-controller"
-import type { FirmwareHardwareInspection } from "lib/server/inspect-firmware-hardware"
+import type { FirmwareHardwareInspection } from "lib/firmware-simulation/inspect-firmware-hardware"
 
 const programming = {
   method: "usb_sam_ba" as const,
@@ -21,24 +21,24 @@ const createFakeSession = async (
   _input: FirmwareSimulationInput,
 ): Promise<RenodeFirmwareSession> => {
   let isPowered = true
-  let buttonStates = { SW1: false }
-  let ledStates = { LED1: false }
+  let buttons = [{ componentName: "SW1", isPressed: false }]
+  let leds = [{ componentName: "LED1", isOn: false }]
   let virtualTimeMilliseconds = 1
   const getState = async (): Promise<FirmwareSimulationSessionState> => ({
     isRunning: isPowered,
     isPowered,
     displayStatus: isPowered ? "ready" : "stopped",
     programming,
-    buttonStates,
-    ledStates,
+    buttons,
+    leds,
     virtualTimeMilliseconds,
   })
   return {
     programming,
     getState,
     setButton: async ({ isPressed }) => {
-      buttonStates = { SW1: isPressed }
-      ledStates = { LED1: isPressed }
+      buttons = [{ componentName: "SW1", isPressed }]
+      leds = [{ componentName: "LED1", isOn: isPressed }]
       virtualTimeMilliseconds += 1
       return getState()
     },
@@ -47,8 +47,8 @@ const createFakeSession = async (
       return getState()
     },
     reset: async () => {
-      buttonStates = { SW1: false }
-      ledStates = { LED1: false }
+      buttons = [{ componentName: "SW1", isPressed: false }]
+      leds = [{ componentName: "LED1", isOn: false }]
       virtualTimeMilliseconds += 1
       return getState()
     },
@@ -58,8 +58,8 @@ const createFakeSession = async (
     },
     powerOn: async () => {
       isPowered = true
-      buttonStates = { SW1: false }
-      ledStates = { LED1: false }
+      buttons = [{ componentName: "SW1", isPressed: false }]
+      leds = [{ componentName: "LED1", isOn: false }]
       virtualTimeMilliseconds += 1
       return getState()
     },
@@ -73,7 +73,9 @@ test("creates, updates, and deletes a firmware simulation session", async () => 
   const projectDir = await mkdtemp(join(tmpdir(), "tsci-firmware-controller-"))
   let createdInput: FirmwareSimulationInput | undefined
   let hardwareInspection: FirmwareHardwareInspection = {
-    status: "passed",
+    isComplete: true,
+    hasErrors: false,
+    displayStatus: "passed",
     issues: [],
     shorts: [],
   }
@@ -136,14 +138,14 @@ test("creates, updates, and deletes a firmware simulation session", async () => 
   expect(controller.getState().display_status).toBe("stopped")
 
   const initial = await controller.getStateWithProject()
-  expect(initial.firmware_project?.build_status).toBe("not_built")
+  expect(initial.firmware_project?.display_status).toBe("not_built")
   expect((await controller.getSource()).content).toBe("initial source")
 
   const saved = await controller.saveSource("updated source")
   expect(saved.firmware_project?.is_build_current).toBe(false)
 
   const built = await controller.build()
-  expect(built.firmware_project?.build_status).toBe("succeeded")
+  expect(built.firmware_project?.display_status).toBe("succeeded")
   expect(built.firmware_project?.build_output).toBe("Built firmware.bin")
 
   const connected = await controller.connectUsb([])
@@ -151,9 +153,11 @@ test("creates, updates, and deletes a firmware simulation session", async () => 
     is_connected: true,
     is_powered: true,
     is_enumerated: true,
-    port_status: "powered",
-    device_mode: "sam_ba_bootloader",
+    has_hardware_fault: false,
+    has_overcurrent_fault: false,
+    display_status: "powered",
   })
+  expect(connected.is_in_bootloader).toBe(true)
 
   const created = await controller.program([])
   expect(created.display_status).toBe("ready")
@@ -174,16 +178,16 @@ test("creates, updates, and deletes a firmware simulation session", async () => 
   expect(unplugged.is_running).toBe(false)
 
   const reconnected = await controller.connectUsb([])
-  expect(reconnected.usb.device_mode).toBe("application")
+  expect(reconnected.is_in_bootloader).toBe(false)
   expect(reconnected.is_running).toBe(true)
 
   const firstReset = await controller.pressReset([])
   expect(firstReset.reset_control?.presses_registered).toBe(1)
-  expect(firstReset.usb.device_mode).toBe("application")
+  expect(firstReset.is_in_bootloader).toBe(false)
 
   const bootloader = await controller.pressReset([])
   expect(bootloader.display_status).toBe("bootloader")
-  expect(bootloader.usb.device_mode).toBe("sam_ba_bootloader")
+  expect(bootloader.is_in_bootloader).toBe(true)
 
   const reprogrammed = await controller.program([])
   expect(reprogrammed.is_running).toBe(true)
@@ -194,7 +198,9 @@ test("creates, updates, and deletes a firmware simulation session", async () => 
   expect(deleted.usb.is_connected).toBe(false)
 
   hardwareInspection = {
-    status: "failed",
+    isComplete: true,
+    hasErrors: true,
+    displayStatus: "failed",
     issues: [],
     shorts: [
       {
@@ -211,6 +217,7 @@ test("creates, updates, and deletes a firmware simulation session", async () => 
   expect(shorted.display_status).toBe("power_fault")
   expect(shorted.usb.is_connected).toBe(true)
   expect(shorted.usb.is_powered).toBe(false)
-  expect(shorted.usb.port_status).toBe("overcurrent_fault")
+  expect(shorted.usb.has_overcurrent_fault).toBe(true)
+  expect(shorted.has_power_fault).toBe(true)
   expect(shorted.hardware_check.shorts[0]?.first_owner_labels).toEqual(["VBUS"])
 })

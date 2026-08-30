@@ -5,7 +5,7 @@ import {
   validateHardwareContract,
 } from "@tscircuit/renode-firmware-engine"
 import type { CircuitJson, LayerRef } from "circuit-json"
-import { getCheckShortLayers } from "../../cli/check/shorts/get-check-short-layers"
+import { getCheckShortLayers } from "cli/check/shorts/get-check-short-layers"
 
 export interface FirmwareHardwareShort {
   layer: LayerRef
@@ -17,7 +17,9 @@ export interface FirmwareHardwareShort {
 }
 
 export interface FirmwareHardwareInspection {
-  status: "passed" | "failed"
+  isComplete: true
+  hasErrors: boolean
+  displayStatus: "passed" | "failed"
   issues: string[]
   shorts: FirmwareHardwareShort[]
 }
@@ -71,8 +73,11 @@ export const inspectFirmwareHardware = async (request: {
     .flat()
     .map(toApiShort)
 
+  const hasErrors = issues.length > 0 || shorts.length > 0
   return {
-    status: issues.length === 0 && shorts.length === 0 ? "passed" : "failed",
+    isComplete: true,
+    hasErrors,
+    displayStatus: hasErrors ? "failed" : "passed",
     issues,
     shorts,
   }

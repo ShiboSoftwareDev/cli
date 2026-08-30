@@ -4,7 +4,7 @@ import { join } from "node:path"
 import { appendCopperBridgeTrace } from "@tscircuit/check-shorts"
 import type { FirmwareSimulationInput } from "@tscircuit/renode-firmware-engine"
 import { getCircuitJsonForCheck } from "cli/check/shared"
-import { inspectFirmwareHardware } from "lib/server/inspect-firmware-hardware"
+import { inspectFirmwareHardware } from "lib/firmware-simulation/inspect-firmware-hardware"
 import { temporaryDirectory } from "tempy"
 
 test("reports a routed copper short with its physical location", async () => {
@@ -54,7 +54,9 @@ test("reports a routed copper short with its physical location", async () => {
 
   const inspection = await inspectFirmwareHardware({ circuitJson, input })
 
-  expect(inspection.status).toBe("failed")
+  expect(inspection.isComplete).toBe(true)
+  expect(inspection.hasErrors).toBe(true)
+  expect(inspection.displayStatus).toBe("failed")
   expect(inspection.shorts.length).toBeGreaterThan(0)
   expect(inspection.shorts[0]?.layer).toBe("top")
   expect(inspection.shorts[0]?.x_mm).toBeNumber()

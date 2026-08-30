@@ -11,6 +11,31 @@ https://github.com/user-attachments/assets/0228e09d-48fc-4bf5-814b-762b60fc35c7
 tsci dev
 ```
 
+### Firmware simulation
+
+Projects with `firmwareSimulationConfigPath` in `tscircuit.config.json` get a
+**Firmware Simulation** tab in `tsci dev`. The tab follows the physical bench
+workflow: edit and build the firmware, plug in USB, use the board's reset switch
+to enter its bootloader, program it over USB, then press switches and observe
+LEDs on the evaluated schematic. It does not expose virtual-clock controls.
+
+The non-interactive equivalent builds the configured firmware artifact, checks
+the logical and routed-copper hardware for faults, programs it through Renode's
+USB model, and runs the declared behavior tests:
+
+```bash
+tsci simulate firmware index.circuit.tsx
+```
+
+Firmware simulation follows tscircuit's existing repository boundaries:
+
+- `@tscircuit/renode-firmware-engine` owns hardware contracts, USB programming,
+  Renode execution, and typed results.
+- `@tscircuit/schematic-viewer` owns the reusable schematic switch/LED view.
+- `@tscircuit/runframe` owns the Firmware Simulation tab and editor controls.
+- `@tscircuit/cli` owns project files, builds, PCB short inspection, the local
+  resource API, and the `simulate firmware` command.
+
 ## Installation
 
 ```bash

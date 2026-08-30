@@ -26,7 +26,7 @@
     "@tscircuit/krt-wasm": "^0.1.6",
     "@tscircuit/math-utils": "0.0.36",
     "@tscircuit/props": "^0.0.612",
-    "@tscircuit/renode-firmware-engine": "github:ShiboSoftwareDev/renode-firmware-engine#907e339",
+    "@tscircuit/renode-firmware-engine": "github:ShiboSoftwareDev/renode-firmware-engine#6b38606",
     "@tscircuit/runframe": "^0.0.2615",
     "@tscircuit/schematic-match-adapt": "^0.0.22",
     "@tscircuit/solver-utils": "0.0.16",

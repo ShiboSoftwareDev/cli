@@ -120,7 +120,9 @@ export const createHttpServer = async ({
 
     if (
       firmwareSimulationController &&
-      url.pathname.startsWith("/api/firmware_simulation/")
+      /^\/api\/firmware_(simulation|source|build|usb|reset)\//.test(
+        url.pathname,
+      )
     ) {
       await handleFirmwareSimulationRequest({
         controller: firmwareSimulationController,
