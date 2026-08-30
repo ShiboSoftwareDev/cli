@@ -26,6 +26,10 @@
       "type": "string",
       "description": "Default component path to show in generated static sites."
     },
+    "firmwareSimulationConfigPath": {
+      "type": "string",
+      "description": "Project-relative path to a firmware simulation factory used by tsci dev."
+    },
     "ignoredFiles": {
       "type": "array",
       "items": {

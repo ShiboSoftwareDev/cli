@@ -2,6 +2,7 @@ import * as fs from "node:fs"
 import * as http from "node:http"
 import { createRequire } from "node:module"
 import * as path from "node:path"
+import { fileURLToPath } from "node:url"
 // @ts-ignore
 import runFrameStandaloneBundleContent from "@tscircuit/runframe/standalone" with {
   type: "text",
@@ -14,8 +15,13 @@ import winterspecBundle from "@tscircuit/file-server/dist/bundle.js"
 import { createLocalCacheEngine } from "../shared/get-platform-config-with-cli-defaults"
 import { getIndex } from "../site/getIndex"
 import { createKicadPcmProxy } from "./kicad-pcm-proxy"
+import { FirmwareSimulationController } from "./firmware-simulation-controller"
+import { handleFirmwareSimulationRequest } from "./handle-firmware-simulation-request"
 
 const RUNFRAME_CACHE_PATH = "/api/cache"
+const EVAL_WEB_WORKER_PATH = fileURLToPath(
+  import.meta.resolve("@tscircuit/eval/worker-entrypoint"),
+)
 
 /**
  * Resolves the standalone runframe + eval bundle (`dist/browser.min.js`) shipped
@@ -63,6 +69,9 @@ export const createHttpServer = async ({
   const localCacheEngine = projectDir
     ? createLocalCacheEngine(path.join(projectDir, ".tscircuit", "cache"))
     : undefined
+  const firmwareSimulationController = projectDir
+    ? new FirmwareSimulationController(projectDir)
+    : undefined
 
   // Create PCM proxy if enabled
   const pcmProxy =
@@ -106,6 +115,19 @@ export const createHttpServer = async ({
 
       res.writeHead(405, { Allow: "GET, POST" })
       res.end()
+      return
+    }
+
+    if (
+      firmwareSimulationController &&
+      url.pathname.startsWith("/api/firmware_simulation/")
+    ) {
+      await handleFirmwareSimulationRequest({
+        controller: firmwareSimulationController,
+        httpRequest: req,
+        response: res,
+        url,
+      })
       return
     }
 
@@ -243,6 +265,25 @@ export const createHttpServer = async ({
       return
     }
 
+    if (url.pathname === "/eval-webworker.js") {
+      try {
+        const content = fs.readFileSync(EVAL_WEB_WORKER_PATH, "utf8")
+        res.writeHead(200, {
+          "Content-Type": "application/javascript; charset=utf-8",
+          "Cache-Control": "no-cache",
+        })
+        res.end(content)
+      } catch (error) {
+        res.writeHead(500, { "Content-Type": "text/plain; charset=utf-8" })
+        res.end(
+          error instanceof Error
+            ? error.message
+            : "Unable to load the tscircuit evaluator worker",
+        )
+      }
+      return
+    }
+
     if (url.pathname === "/") {
       const fileServerApiBaseUrl = `http://${req.headers.host}/api`
       const html = await getIndex(
@@ -268,6 +309,10 @@ export const createHttpServer = async ({
 
     res.writeHead(404)
     res.end("Not found")
+  })
+
+  server.once("close", () => {
+    firmwareSimulationController?.delete().catch(() => undefined)
   })
 
   return new Promise<{ server: http.Server }>((resolve) => {

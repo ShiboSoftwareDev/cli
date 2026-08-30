@@ -20,13 +20,14 @@ export const getIndex = async (
       <script>
        ${mainComponentPath ? `window.TSCIRCUIT_DEFAULT_MAIN_COMPONENT_PATH = "${mainComponentPath}";` : ""}
         window.TSCIRCUIT_USE_RUNFRAME_FOR_CLI = true;${tokenScript}${fileServerApiScript}
+        window.TSCIRCUIT_EVAL_WEB_WORKER_URL = "/eval-webworker.js";
       </script>
       <script src="https://cdn.tailwindcss.com"></script>
       <div id="root">loading...</div>
       <script>
       globalThis.process = { env: { NODE_ENV: "production" } }
       </script>
-      <script type="module" src="/standalone.min.js"></script>
+      <script type="module" src="/standalone.min.js?v=firmware-simulation"></script>
     </body>
   </html>`
 }

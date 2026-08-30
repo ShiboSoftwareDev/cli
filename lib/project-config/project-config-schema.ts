@@ -20,6 +20,7 @@ export const projectConfigSchema = z.object({
   libraryEntrypoint: z.string().optional(),
   previewComponentPath: z.string().optional(),
   siteDefaultComponentPath: z.string().optional(),
+  firmwareSimulationConfigPath: z.string().optional(),
   ignoredFiles: z.array(z.string()).optional(),
   includeBoardFiles: z.array(z.string()).optional(),
   snapshotsDir: z.string().optional(),
