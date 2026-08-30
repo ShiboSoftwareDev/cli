@@ -46,7 +46,13 @@ export const handleFirmwareSimulationRequest = async (request: {
   try {
     if (verb === "get" && ["GET", "POST"].includes(httpRequest.method ?? "")) {
       writeJson(response, 200, {
-        firmware_simulation: controller.getState(),
+        firmware_simulation: await controller.getStateWithProject(),
+      })
+      return
+    }
+    if (verb === "get_source" && httpRequest.method === "GET") {
+      writeJson(response, 200, {
+        firmware_source: await controller.getSource(),
       })
       return
     }
@@ -60,12 +66,47 @@ export const handleFirmwareSimulationRequest = async (request: {
       return
     }
     const requestBody = await readJsonBody(httpRequest)
-    if (verb === "create") {
-      if (!Array.isArray(requestBody.circuit_json)) {
-        throw new Error("firmware_simulation/create requires circuit_json")
+    if (verb === "save_source") {
+      if (typeof requestBody.source_code !== "string") {
+        throw new Error("firmware_simulation/save_source requires source_code")
       }
       writeJson(response, 200, {
-        firmware_simulation: await controller.create(
+        firmware_simulation: await controller.saveSource(
+          requestBody.source_code,
+        ),
+      })
+      return
+    }
+    if (verb === "build") {
+      writeJson(response, 200, {
+        firmware_simulation: await controller.build(),
+      })
+      return
+    }
+    if (verb === "connect_usb") {
+      writeJson(response, 200, {
+        firmware_simulation: await controller.connectUsb(),
+      })
+      return
+    }
+    if (verb === "disconnect_usb") {
+      writeJson(response, 200, {
+        firmware_simulation: await controller.disconnectUsb(),
+      })
+      return
+    }
+    if (verb === "enter_bootloader") {
+      writeJson(response, 200, {
+        firmware_simulation: await controller.enterBootloader(),
+      })
+      return
+    }
+    if (verb === "program" || verb === "create") {
+      if (!Array.isArray(requestBody.circuit_json)) {
+        throw new Error("firmware_simulation/program requires circuit_json")
+      }
+      writeJson(response, 200, {
+        firmware_simulation: await controller.program(
           requestBody.circuit_json as CircuitJson,
         ),
       })
