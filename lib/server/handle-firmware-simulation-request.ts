@@ -46,7 +46,7 @@ export const handleFirmwareSimulationRequest = async (request: {
   try {
     if (verb === "get" && ["GET", "POST"].includes(httpRequest.method ?? "")) {
       writeJson(response, 200, {
-        firmware_simulation: await controller.getStateWithProject(),
+        firmware_simulation: await controller.refresh(),
       })
       return
     }
@@ -84,8 +84,13 @@ export const handleFirmwareSimulationRequest = async (request: {
       return
     }
     if (verb === "connect_usb") {
+      if (!Array.isArray(requestBody.circuit_json)) {
+        throw new Error("firmware_simulation/connect_usb requires circuit_json")
+      }
       writeJson(response, 200, {
-        firmware_simulation: await controller.connectUsb(),
+        firmware_simulation: await controller.connectUsb(
+          requestBody.circuit_json as CircuitJson,
+        ),
       })
       return
     }
@@ -95,9 +100,14 @@ export const handleFirmwareSimulationRequest = async (request: {
       })
       return
     }
-    if (verb === "enter_bootloader") {
+    if (verb === "press_reset") {
+      if (!Array.isArray(requestBody.circuit_json)) {
+        throw new Error("firmware_simulation/press_reset requires circuit_json")
+      }
       writeJson(response, 200, {
-        firmware_simulation: await controller.enterBootloader(),
+        firmware_simulation: await controller.pressReset(
+          requestBody.circuit_json as CircuitJson,
+        ),
       })
       return
     }
@@ -120,9 +130,6 @@ export const handleFirmwareSimulationRequest = async (request: {
             : {}),
           ...(typeof requestBody.is_pressed === "boolean"
             ? { isPressed: requestBody.is_pressed }
-            : {}),
-          ...(typeof requestBody.advance_time_ms === "number"
-            ? { advanceTimeMs: requestBody.advance_time_ms }
             : {}),
         }),
       })

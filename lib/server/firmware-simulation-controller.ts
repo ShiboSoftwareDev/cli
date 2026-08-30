@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process"
+import { createHash } from "node:crypto"
 import { readFile, stat, writeFile } from "node:fs/promises"
 import path from "node:path"
 import { pathToFileURL } from "node:url"
@@ -12,8 +13,17 @@ import {
 } from "@tscircuit/renode-firmware-engine"
 import type { CircuitJson } from "circuit-json"
 import { loadProjectConfig } from "lib/project-config"
+import {
+  type FirmwareHardwareInspection,
+  inspectFirmwareHardware,
+} from "./inspect-firmware-hardware"
 
 type FirmwareDeviceMode = "off" | "sam_ba_bootloader" | "application"
+type FirmwareUsbPortStatus =
+  | "disconnected"
+  | "powered"
+  | "hardware_fault"
+  | "overcurrent_fault"
 type FirmwareBuildStatus = "not_built" | "building" | "succeeded" | "failed"
 
 interface ResolvedFirmwareWorkbench {
@@ -54,13 +64,28 @@ export interface FirmwareSimulationApiState {
     | "programming"
     | "bootloader"
     | "ready"
+    | "power_fault"
+    | "hardware_fault"
     | "error"
   firmware_file_path?: string
   mcu_component_name?: string
   usb: {
     is_connected: boolean
     is_powered: boolean
+    is_enumerated: boolean
+    port_status: FirmwareUsbPortStatus
     device_mode: FirmwareDeviceMode
+  }
+  hardware_check: {
+    status: "unchecked" | "passed" | "failed"
+    issues: string[]
+    shorts: FirmwareHardwareInspection["shorts"]
+  }
+  reset_control?: {
+    component_name: string
+    bootloader_entry_method: "double_press"
+    max_interval_ms: number
+    presses_registered: 0 | 1
   }
   firmware_project?: FirmwareProjectApiState
   programming?: {
@@ -91,6 +116,8 @@ type RunBuild = (request: {
   workingDirectory: string
   timeoutMilliseconds: number
 }) => Promise<{ stdout: string; stderr: string }>
+
+type InspectHardware = typeof inspectFirmwareHardware
 
 const isPathInside = (candidatePath: string, projectDir: string): boolean => {
   const relativePath = path.relative(projectDir, candidatePath)
@@ -156,7 +183,11 @@ const toApiState = (request: {
   isBuilding: boolean
   isProgramming: boolean
   isUsbConnected: boolean
+  isUsbPowered: boolean
+  usbPortStatus: FirmwareUsbPortStatus
   deviceMode: FirmwareDeviceMode
+  hardwareInspection?: FirmwareHardwareInspection
+  resetPressRegistered: boolean
   input?: FirmwareSimulationInput
   project?: FirmwareProjectApiState
   sessionState?: FirmwareSimulationSessionState
@@ -172,18 +203,50 @@ const toApiState = (request: {
         ? "building"
         : request.isProgramming
           ? "programming"
-          : sessionState?.isRunning
-            ? "ready"
-            : request.isUsbConnected
-              ? "bootloader"
-              : request.isConfigured
-                ? "stopped"
-                : "not_configured",
+          : request.isUsbConnected &&
+              request.usbPortStatus === "overcurrent_fault"
+            ? "power_fault"
+            : request.isUsbConnected &&
+                request.usbPortStatus === "hardware_fault"
+              ? "hardware_fault"
+              : sessionState?.isRunning
+                ? "ready"
+                : request.isUsbConnected &&
+                    request.deviceMode === "sam_ba_bootloader"
+                  ? "bootloader"
+                  : request.isConfigured
+                    ? "stopped"
+                    : "not_configured",
     usb: {
       is_connected: request.isUsbConnected,
-      is_powered: request.isUsbConnected,
+      is_powered: request.isUsbPowered,
+      is_enumerated:
+        request.isUsbPowered &&
+        (request.deviceMode === "sam_ba_bootloader" ||
+          request.deviceMode === "application"),
+      port_status: request.usbPortStatus,
       device_mode: request.deviceMode,
     },
+    hardware_check: request.hardwareInspection ?? {
+      status: "unchecked",
+      issues: [],
+      shorts: [],
+    },
+    ...(request.input?.hardware.reset?.bootloaderEntry?.method ===
+    "double_press"
+      ? {
+          reset_control: {
+            component_name: request.input.hardware.reset.componentName,
+            bootloader_entry_method: "double_press" as const,
+            max_interval_ms:
+              request.input.hardware.reset.bootloaderEntry
+                .maxIntervalMilliseconds ?? 1_000,
+            presses_registered: request.resetPressRegistered
+              ? (1 as const)
+              : (0 as const),
+          },
+        }
+      : {}),
     ...(request.project ? { firmware_project: request.project } : {}),
     ...(request.input
       ? {
@@ -228,7 +291,14 @@ export class FirmwareSimulationController {
   private input?: FirmwareSimulationInput
   private workbench?: ResolvedFirmwareWorkbench
   private isUsbConnected = false
+  private isUsbPowered = false
+  private usbPortStatus: FirmwareUsbPortStatus = "disconnected"
   private deviceMode: FirmwareDeviceMode = "off"
+  private hardwareInspection?: FirmwareHardwareInspection
+  private inspectedCircuitHash?: string
+  private lastResetPressAt?: number
+  private lastClockSyncAt?: number
+  private clockTimer?: ReturnType<typeof setTimeout>
   private isBuilding = false
   private isProgramming = false
   private buildStatus: FirmwareBuildStatus = "not_built"
@@ -237,14 +307,20 @@ export class FirmwareSimulationController {
   private operationQueue: Promise<unknown> = Promise.resolve()
   private readonly createSession: CreateSession
   private readonly runBuild: RunBuild
+  private readonly inspectHardware: InspectHardware
 
   constructor(
     private readonly projectDir: string,
-    options: { createSession?: CreateSession; runBuild?: RunBuild } = {},
+    options: {
+      createSession?: CreateSession
+      runBuild?: RunBuild
+      inspectHardware?: InspectHardware
+    } = {},
   ) {
     this.createSession =
       options.createSession ?? createDockerRenodeFirmwareSession
     this.runBuild = options.runBuild ?? runBuildProcess
+    this.inspectHardware = options.inspectHardware ?? inspectFirmwareHardware
   }
 
   getState(): FirmwareSimulationApiState {
@@ -253,7 +329,11 @@ export class FirmwareSimulationController {
       isBuilding: this.isBuilding,
       isProgramming: this.isProgramming,
       isUsbConnected: this.isUsbConnected,
+      isUsbPowered: this.isUsbPowered,
+      usbPortStatus: this.usbPortStatus,
       deviceMode: this.deviceMode,
+      hardwareInspection: this.hardwareInspection,
+      resetPressRegistered: this.isResetPressRegistered(),
       input: this.input,
       sessionState: this.sessionState,
       errorMessage: this.errorMessage,
@@ -272,6 +352,13 @@ export class FirmwareSimulationController {
     const state = this.getState()
     if (project) state.firmware_project = project
     return state
+  }
+
+  refresh(): Promise<FirmwareSimulationApiState> {
+    return this.runExclusive(async () => {
+      await this.syncSessionToWallClock()
+      return this.getStateWithProject()
+    })
   }
 
   async getSource(): Promise<FirmwareSourceApiState> {
@@ -328,33 +415,105 @@ export class FirmwareSimulationController {
     })
   }
 
-  connectUsb(): Promise<FirmwareSimulationApiState> {
+  connectUsb(circuitJson: CircuitJson): Promise<FirmwareSimulationApiState> {
     return this.runExclusive(async () => {
       this.isUsbConnected = true
-      this.deviceMode = this.session ? "application" : "sam_ba_bootloader"
       this.errorMessage = undefined
+      const inspection = await this.inspectCircuit(circuitJson, true)
+      if (inspection.status === "failed") {
+        const hasOvercurrentFault =
+          inspection.shorts.length > 0 ||
+          inspection.issues.some((issue) => /shorted/i.test(issue))
+        const hasPowerPathFault = inspection.issues.some((issue) =>
+          /\b(VBUS|GND|regulator|MCU power|MCU ground|power port)\b/i.test(
+            issue,
+          ),
+        )
+        if (this.session) this.sessionState = await this.session.powerOff()
+        this.isUsbPowered = !hasOvercurrentFault && !hasPowerPathFault
+        this.usbPortStatus = hasOvercurrentFault
+          ? "overcurrent_fault"
+          : "hardware_fault"
+        this.deviceMode = "off"
+        this.stopRealTimeClock()
+        return this.getStateWithProject()
+      }
+      this.isUsbPowered = true
+      this.usbPortStatus = "powered"
+      if (this.session) {
+        this.sessionState = await this.session.powerOn()
+        this.deviceMode = "application"
+        this.startRealTimeClock()
+      } else {
+        this.deviceMode = "sam_ba_bootloader"
+      }
       return this.getStateWithProject()
     })
   }
 
   disconnectUsb(): Promise<FirmwareSimulationApiState> {
     return this.runExclusive(async () => {
-      await this.stopSession()
+      if (this.session) this.sessionState = await this.session.powerOff()
       this.isUsbConnected = false
+      this.isUsbPowered = false
+      this.usbPortStatus = "disconnected"
       this.deviceMode = "off"
+      this.lastResetPressAt = undefined
+      this.stopRealTimeClock()
       this.errorMessage = undefined
       return this.getStateWithProject()
     })
   }
 
-  enterBootloader(): Promise<FirmwareSimulationApiState> {
+  pressReset(circuitJson: CircuitJson): Promise<FirmwareSimulationApiState> {
     return this.runExclusive(async () => {
       if (!this.isUsbConnected) {
-        throw new Error("Plug in the USB cable before entering bootloader mode")
+        throw new Error(
+          "The reset switch has no effect while the board is unpowered",
+        )
       }
-      await this.stopSession()
-      this.deviceMode = "sam_ba_bootloader"
+      const inspection = await this.inspectCircuit(circuitJson)
+      if (inspection.status === "failed") {
+        throw new Error(
+          "Fix the detected hardware faults before applying power",
+        )
+      }
+      if (!this.isUsbPowered) throw new Error("The board is not powered")
+      const reset = this.input?.hardware.reset
+      if (!reset) {
+        throw new Error("No physical reset switch is declared for this board")
+      }
       this.errorMessage = undefined
+      if (this.deviceMode === "sam_ba_bootloader") {
+        if (this.session) {
+          this.sessionState = await this.session.powerOn()
+          this.deviceMode = "application"
+          this.startRealTimeClock()
+        }
+        this.lastResetPressAt = undefined
+        return this.getStateWithProject()
+      }
+      if (this.deviceMode !== "application" || !this.session) {
+        throw new Error("The reset switch is not connected to a running MCU")
+      }
+      const now = Date.now()
+      const maxInterval =
+        reset.bootloaderEntry?.maxIntervalMilliseconds ?? 1_000
+      if (
+        reset.bootloaderEntry?.method === "double_press" &&
+        this.lastResetPressAt !== undefined &&
+        now - this.lastResetPressAt <= maxInterval
+      ) {
+        this.sessionState = await this.session.powerOff()
+        this.deviceMode = "sam_ba_bootloader"
+        this.lastResetPressAt = undefined
+        this.stopRealTimeClock()
+        return this.getStateWithProject()
+      }
+      await this.syncSessionToWallClock()
+      this.sessionState = await this.session.reset()
+      this.lastResetPressAt = now
+      this.startRealTimeClock()
       return this.getStateWithProject()
     })
   }
@@ -365,8 +524,16 @@ export class FirmwareSimulationController {
         throw new Error("Plug in the USB cable before programming firmware")
       }
       if (this.deviceMode !== "sam_ba_bootloader") {
-        throw new Error("Enter SAM-BA bootloader mode before programming")
+        throw new Error(
+          "Double-press the physical reset switch to enter SAM-BA before programming",
+        )
       }
+      const inspection = await this.inspectCircuit(circuitJson)
+      if (inspection.status === "failed") {
+        throw new Error("Fix the detected hardware faults before programming")
+      }
+      if (!this.isUsbPowered)
+        throw new Error("USB VBUS is not powering the board")
       const project = await this.getProjectState()
       if (
         project &&
@@ -381,7 +548,11 @@ export class FirmwareSimulationController {
         this.input = await this.loadInput(circuitJson)
         this.session = await this.createSession(this.input)
         this.sessionState = await this.session.getState()
+        this.isUsbPowered = true
+        this.usbPortStatus = "powered"
         this.deviceMode = "application"
+        this.lastResetPressAt = undefined
+        this.startRealTimeClock()
       } catch (error) {
         this.errorMessage =
           error instanceof Error ? error.message : "Firmware simulation failed"
@@ -401,12 +572,12 @@ export class FirmwareSimulationController {
   update(request: {
     buttonComponentName?: string
     isPressed?: boolean
-    advanceTimeMs?: number
   }): Promise<FirmwareSimulationApiState> {
     return this.runExclusive(async () => {
       if (!this.session) throw new Error("No firmware simulation is running")
       this.errorMessage = undefined
       try {
+        await this.syncSessionToWallClock()
         if (request.buttonComponentName !== undefined) {
           if (request.isPressed === undefined) {
             throw new Error("Button updates require is_pressed")
@@ -415,10 +586,8 @@ export class FirmwareSimulationController {
             componentName: request.buttonComponentName,
             isPressed: request.isPressed,
           })
-        } else if (request.advanceTimeMs !== undefined) {
-          this.sessionState = await this.session.runFor(request.advanceTimeMs)
         } else {
-          throw new Error("A firmware simulation update action is required")
+          throw new Error("A physical switch action is required")
         }
         return this.getStateWithProject()
       } catch (error) {
@@ -430,7 +599,107 @@ export class FirmwareSimulationController {
   }
 
   delete(): Promise<FirmwareSimulationApiState> {
-    return this.disconnectUsb()
+    return this.runExclusive(async () => {
+      await this.stopSession()
+      this.isUsbConnected = false
+      this.isUsbPowered = false
+      this.usbPortStatus = "disconnected"
+      this.deviceMode = "off"
+      this.lastResetPressAt = undefined
+      this.stopRealTimeClock()
+      return this.getStateWithProject()
+    })
+  }
+
+  private async inspectCircuit(
+    circuitJson: CircuitJson,
+    force = false,
+  ): Promise<FirmwareHardwareInspection> {
+    const circuitHash = createHash("sha256")
+      .update(JSON.stringify(circuitJson))
+      .digest("hex")
+    if (
+      !force &&
+      this.inspectedCircuitHash === circuitHash &&
+      this.hardwareInspection
+    ) {
+      return this.hardwareInspection
+    }
+    this.input = await this.loadInput(circuitJson)
+    this.hardwareInspection = await this.inspectHardware({
+      circuitJson,
+      input: this.input,
+    })
+    this.inspectedCircuitHash = circuitHash
+    return this.hardwareInspection
+  }
+
+  private isResetPressRegistered(): boolean {
+    if (this.lastResetPressAt === undefined) return false
+    const maxInterval =
+      this.input?.hardware.reset?.bootloaderEntry?.maxIntervalMilliseconds ??
+      1_000
+    return Date.now() - this.lastResetPressAt <= maxInterval
+  }
+
+  private async syncSessionToWallClock(): Promise<void> {
+    if (
+      !this.session ||
+      !this.isUsbPowered ||
+      this.deviceMode !== "application"
+    ) {
+      return
+    }
+    this.sessionState = await this.session.getState()
+  }
+
+  private startRealTimeClock(): void {
+    if (
+      this.clockTimer ||
+      this.errorMessage ||
+      !this.session ||
+      !this.isUsbPowered ||
+      this.deviceMode !== "application"
+    ) {
+      return
+    }
+    this.lastClockSyncAt = Date.now()
+    this.clockTimer = setTimeout(() => {
+      this.clockTimer = undefined
+      const tickStartedAt = Date.now()
+      void this.runExclusive(async () => {
+        if (
+          !this.session ||
+          !this.isUsbPowered ||
+          this.deviceMode !== "application"
+        ) {
+          return
+        }
+        const elapsed = Math.max(
+          1,
+          Math.min(
+            250,
+            tickStartedAt - (this.lastClockSyncAt ?? tickStartedAt),
+          ),
+        )
+        this.sessionState = await this.session.runFor(elapsed)
+        this.lastClockSyncAt = tickStartedAt
+      })
+        .catch((error) => {
+          this.errorMessage =
+            error instanceof Error
+              ? error.message
+              : "Firmware execution stopped"
+          this.stopRealTimeClock()
+        })
+        .finally(() => this.startRealTimeClock())
+    }, 50)
+  }
+
+  private stopRealTimeClock(): void {
+    if (this.clockTimer) clearTimeout(this.clockTimer)
+    this.clockTimer = undefined
+    this.lastClockSyncAt = undefined
   }
 
   private async getProjectState(): Promise<
@@ -469,6 +738,7 @@ export class FirmwareSimulationController {
   }
 
   private async stopSession(): Promise<void> {
+    this.stopRealTimeClock()
     await this.session?.stop()
     this.session = undefined
     this.sessionState = undefined
